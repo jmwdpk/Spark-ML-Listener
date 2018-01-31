@@ -43,8 +43,6 @@ class PipelineSuite extends SparkFunSuite with MLlibTestSparkContext with Defaul
 
   abstract class MyModel extends Model[MyModel]
 
-  protected def newPipeline: Pipeline = new Pipeline()
-
   test("pipeline") {
     val estimator0 = mock[Estimator[MyModel]]
     val model0 = mock[MyModel]
@@ -97,66 +95,65 @@ class PipelineSuite extends SparkFunSuite with MLlibTestSparkContext with Defaul
   }
 
 
-   def testWithPipeline(
-      name: String)(
-         f: (Pipeline, Seq[MLListenEvent] => Unit) => Unit): Unit = test(name) {
-    val catalog = newPipeline
+   def testWithPipeline(name: String)(f: (
+     DataFrame, Pipeline, Seq[MLListenEvent] => Unit) => Unit): Unit = test(name) {
+     val estimator0 = mock[Estimator[MyModel]]
+     val model0 = mock[MyModel]
+     val transformer1 = mock[Transformer]
+     val estimator2 = mock[Estimator[MyModel]]
+     val model2 = mock[MyModel]
+     val transformer3 = mock[Transformer]
+
+     when(estimator0.copy(any[ParamMap])).thenReturn(estimator0)
+     when(model0.copy(any[ParamMap])).thenReturn(model0)
+     when(transformer1.copy(any[ParamMap])).thenReturn(transformer1)
+     when(estimator2.copy(any[ParamMap])).thenReturn(estimator2)
+     when(model2.copy(any[ParamMap])).thenReturn(model2)
+     when(transformer3.copy(any[ParamMap])).thenReturn(transformer3)
+
+     val dataset0 = mock[DataFrame]
+     val dataset1 = mock[DataFrame]
+     val dataset2 = mock[DataFrame]
+     val dataset3 = mock[DataFrame]
+     val dataset4 = mock[DataFrame]
+
+     when(dataset0.toDF).thenReturn(dataset0)
+     when(dataset1.toDF).thenReturn(dataset1)
+     when(dataset2.toDF).thenReturn(dataset2)
+     when(dataset3.toDF).thenReturn(dataset3)
+     when(dataset4.toDF).thenReturn(dataset4)
+
+     when(estimator0.fit(meq(dataset0))).thenReturn(model0)
+     when(model0.transform(meq(dataset0))).thenReturn(dataset1)
+     when(model0.parent).thenReturn(estimator0)
+     when(transformer1.transform(meq(dataset1))).thenReturn(dataset2)
+     when(estimator2.fit(meq(dataset2))).thenReturn(model2)
+     when(model2.transform(meq(dataset2))).thenReturn(dataset3)
+     when(model2.parent).thenReturn(estimator2)
+     when(transformer3.transform(meq(dataset3))).thenReturn(dataset4)
+
     val recorder = mutable.Buffer.empty[MLListenEvent]
-    catalog.addListener(new MLListener {
+
+     val pipeline = new Pipeline()
+       .setStages(Array(estimator0, transformer1, estimator2, transformer3))
+
+     pipeline.addListener(new MLListener {
       override def onEvent(event: MLListenEvent): Unit = {
         recorder += event
       }
     })
-    f(catalog, (expected: Seq[MLListenEvent]) => {
+    f(dataset0, pipeline, (expected: Seq[MLListenEvent]) => {
       val actual = recorder.clone()
       recorder.clear()
       assert(expected === actual)
     })
   }
 
-  testWithPipeline("pipelineMJ") { (catalog, checkEvents) =>
-    val estimator0 = mock[Estimator[MyModel]]
-    val model0 = mock[MyModel]
-    val transformer1 = mock[Transformer]
-    val estimator2 = mock[Estimator[MyModel]]
-    val model2 = mock[MyModel]
-    val transformer3 = mock[Transformer]
-    val dataset0 = mock[DataFrame]
-    val dataset1 = mock[DataFrame]
-    val dataset2 = mock[DataFrame]
-    val dataset3 = mock[DataFrame]
-    val dataset4 = mock[DataFrame]
+  testWithPipeline("pipelineJobTracker") { (df, newPipeline, checkEvents) =>
+    val pipelineModel = newPipeline.fit(df)
 
-    when(dataset0.toDF).thenReturn(dataset0)
-    when(dataset1.toDF).thenReturn(dataset1)
-    when(dataset2.toDF).thenReturn(dataset2)
-    when(dataset3.toDF).thenReturn(dataset3)
-    when(dataset4.toDF).thenReturn(dataset4)
-
-    when(estimator0.copy(any[ParamMap])).thenReturn(estimator0)
-    when(model0.copy(any[ParamMap])).thenReturn(model0)
-    when(transformer1.copy(any[ParamMap])).thenReturn(transformer1)
-    when(estimator2.copy(any[ParamMap])).thenReturn(estimator2)
-    when(model2.copy(any[ParamMap])).thenReturn(model2)
-    when(transformer3.copy(any[ParamMap])).thenReturn(transformer3)
-
-    when(estimator0.fit(meq(dataset0))).thenReturn(model0)
-    when(model0.transform(meq(dataset0))).thenReturn(dataset1)
-    when(model0.parent).thenReturn(estimator0)
-    when(transformer1.transform(meq(dataset1))).thenReturn(dataset2)
-    when(estimator2.fit(meq(dataset2))).thenReturn(model2)
-    when(model2.transform(meq(dataset2))).thenReturn(dataset3)
-    when(model2.parent).thenReturn(estimator2)
-    when(transformer3.transform(meq(dataset3))).thenReturn(dataset4)
-
-    newPipeline.setStages(Array(estimator0))
-    val pipelineModel = newPipeline.fit(dataset0)
-    checkEvents(CreatePipelineEvent(newPipeline, dataset0) :: CreateModelEvent(pipelineModel) :: Nil)
-
-    intercept[AnalysisException] {
-      newPipeline.fit(dataset0)
-    }
-    checkEvents(CreatePipelineEvent(newPipeline, dataset0) :: Nil)
+    checkEvents(CreatePipelineEvent(newPipeline, df) :: CreateModelEvent(
+      pipelineModel) :: Nil)
   }
 
 
@@ -197,6 +194,38 @@ class PipelineSuite extends SparkFunSuite with MLlibTestSparkContext with Defaul
       "copy should create an instance with the same parent")
   }
 
+  def testWithPipelineModel(name: String)(f: (
+    DataFrame, PipelineModel, Seq[MLListenEvent] => Unit) => Unit): Unit = test(name) {
+    val dataset0 = mock[DataFrame]
+
+    when(dataset0.toDF).thenReturn(dataset0)
+    val transform0 = mock[Transformer]
+    val model1 = mock[MyModel]
+    val transform1 = mock[Transformer]
+
+    val stages = Array(transform0, model1, transform1)
+    val newPipelineModel = new PipelineModel("pipeline0", stages)
+    val recorder = mutable.Buffer.empty[MLListenEvent]
+
+    newPipelineModel.addListener(new MLListener {
+      override def onEvent(event: MLListenEvent): Unit = {
+        recorder += event
+      }
+    })
+
+    f(dataset0, newPipelineModel, (expected: Seq[MLListenEvent]) => {
+      val actual = recorder.clone()
+      recorder.clear()
+      assert(expected === actual)
+    })
+  }
+
+  testWithPipelineModel(
+    "pipeline model transform tracker") { (df, newPipelineModel, checkEvents) =>
+    val output = newPipelineModel.transform(df)
+    checkEvents(TransformEvent(newPipelineModel, df) :: Nil)
+  }
+
   test("pipeline model constructors") {
     val transform0 = mock[Transformer]
     val model1 = mock[MyModel]
@@ -223,6 +252,35 @@ class PipelineSuite extends SparkFunSuite with MLlibTestSparkContext with Defaul
     assert(writableStage.getIntParam === writableStage2.getIntParam)
   }
 
+  def testWithPipelineReadWrite(name: String)(f: (
+    Pipeline, String, Seq[MLListenEvent] => Unit) => Unit): Unit = test(name) {
+    val path = Math.random().toString
+    val writableStage = new WritableStage("writableStage")
+    val newPipeline = new Pipeline()
+      .setStages(Array(writableStage))
+    val recorder = mutable.Buffer.empty[MLListenEvent]
+
+    newPipeline.addListener(new MLListener {
+      override def onEvent(event: MLListenEvent): Unit = {
+        recorder += event
+      }
+    })
+
+    f(newPipeline, path, (expected: Seq[MLListenEvent]) => {
+      val actual = recorder.clone()
+      recorder.clear()
+      assert(expected === actual)
+    })
+  }
+
+  testWithPipelineReadWrite("Pipeline read/write tracker") { (newPipeline, path, checkEvents) =>
+//    val path = Math.random().toString
+
+    newPipeline.write.save(path)
+
+    checkEvents(SavePipelineEvent(path) :: Nil)
+  }
+
   test("Pipeline read/write with non-Writable stage") {
     val unWritableStage = new UnWritableStage("unwritableStage")
     val unWritablePipeline = new Pipeline().setStages(Array(unWritableStage))
@@ -243,6 +301,37 @@ class PipelineSuite extends SparkFunSuite with MLlibTestSparkContext with Defaul
     assert(pipeline2.stages(0).isInstanceOf[WritableStage])
     val writableStage2 = pipeline2.stages(0).asInstanceOf[WritableStage]
     assert(writableStage.getIntParam === writableStage2.getIntParam)
+  }
+
+  //not tested
+  def testWithPipelineModelReadWrite(name: String)(f: (
+    Pipeline, String, Seq[MLListenEvent] => Unit) => Unit): Unit = test(name) {
+    val path = Math.random().toString
+    val writableStage = new WritableStage("writableStage")
+    val pipelineModel =
+      new PipelineModel("pipeline_89329329", Array(writableStage.asInstanceOf[Transformer]))
+    val recorder = mutable.Buffer.empty[MLListenEvent]
+
+    pipelineModel.addListener(new MLListener {
+      override def onEvent(event: MLListenEvent): Unit = {
+        recorder += event
+      }
+    })
+
+    f(pipelineModel, path, (expected: Seq[MLListenEvent]) => {
+      val actual = recorder.clone()
+      recorder.clear()
+      assert(expected === actual)
+    })
+  }
+
+  testWithPipelineModelReadWrite(
+    "PipelineModel read/write tracker") { (pipelineModel, path, checkEvents) =>
+    //    val path = Math.random().toString
+
+    pipelineModel.write.save(path)
+
+    checkEvents(SaveModelEvent(path) :: Nil)
   }
 
   test("PipelineModel read/write: getStagePath") {
